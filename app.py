@@ -4,6 +4,8 @@ import requests
 import random
 import math
 import io
+import time
+import pandas as pd
 from openpyxl import Workbook
 from math import radians, cos, sin, sqrt, atan2
 
@@ -45,8 +47,11 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     c = 2 * atan2(sqrt(a), sqrt(1 - a))
     return R * c
 
-st.title("📍 Hybrid Geocoder: Random Area to Verified Lat/Lon")
+# 🌍 App Title
+st.title("🌐 Global Hybrid Geocoder (Random Area → Verified Address & Lat/Lon)")
+st.write("This app works from **any country or region**, and uses Google's global Geocoding API to return verified street-level addresses and coordinates.")
 
+# 🔢 Input fields
 lat = st.number_input("Enter Center Latitude", format="%.6f")
 lon = st.number_input("Enter Center Longitude", format="%.6f")
 radius = st.number_input("Radius (meters)", value=500, min_value=10, max_value=5000)
@@ -57,11 +62,14 @@ if st.button("🔍 Run Hybrid Geocoding"):
     if not api_key:
         st.error("Please enter a valid API Key.")
     else:
-        st.info("Fetching addresses...")
+        st.info("Fetching addresses globally... please wait.")
         results = []
         unique_addresses = set()
+        progress = st.progress(0)
+        status = st.empty()
+        start_time = time.time()
 
-        for _ in range(300):
+        for i in range(300):
             if len(results) >= max_results:
                 break
 
@@ -72,21 +80,39 @@ if st.button("🔍 Run Hybrid Geocoding"):
                 actual_lat, actual_lon = forward_geocode(address, api_key)
                 if actual_lat is not None:
                     dist = haversine_distance(r_lat, r_lon, actual_lat, actual_lon)
-                    results.append((round(r_lat, 6), round(r_lon, 6), address, actual_lat, actual_lon, round(dist, 2)))
+                    results.append((
+                        round(r_lat, 6), round(r_lon, 6),
+                        address,
+                        round(actual_lat, 6), round(actual_lon, 6),
+                        round(dist, 2)
+                    ))
                     unique_addresses.add(address)
 
+            # Update UI progress
+            progress.progress(min(int((len(results) / max_results) * 100), 100))
+            status.text(f"Found {len(results)} / {max_results} addresses...")
+
+        end_time = time.time()
+        elapsed = round(end_time - start_time, 2)
+
         if results:
+            df = pd.DataFrame(results, columns=[
+                "Random Lat", "Random Lon", "Address", "Verified Lat", "Verified Lon", "Distance (m)"
+            ])
+            st.success(f"✅ {len(results)} addresses found and verified in {elapsed} seconds.")
+
+            st.subheader("📋 Preview of Results")
+            st.dataframe(df.head(10))
+
             output = io.BytesIO()
-            wb = Workbook()
-            ws = wb.active
-            ws.append(["Random Lat", "Random Lon", "Address", "Verified Lat", "Verified Lon", "Distance (m)"])
-            for row in results:
-                ws.append(row)
-            wb.save(output)
+            df.to_excel(output, index=False, engine="openpyxl")
             output.seek(0)
 
-            st.success(f"✅ {len(results)} addresses found and verified.")
-            st.download_button("📥 Download Results", data=output, file_name="hybrid_geocoded_addresses.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button(
+                "📥 Download Results as Excel",
+                data=output,
+                file_name="hybrid_geocoded_addresses.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
         else:
-            st.warning("No valid addresses found. Try increasing radius or checking API quota.")
+            st.warning("No valid addresses found. Try increasing the radius or check your API key quota.")
